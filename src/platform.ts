@@ -1,7 +1,7 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { SinopeAccessory } from './platformAccessory';
+import {SinopeAccessory, SinopeSwitchAccessory} from './platformAccessory';
 // import { SinopeDevice } from './types';
 import { SinopePlatformConfig } from './config';
 import { NeviwebApi } from './neviweb';
@@ -104,7 +104,11 @@ export class SinopePlatform implements DynamicPlatformPlugin {
 
           // create the accessory handler for the restored accessory
           // this is imported from `platformAccessory.ts`
-          new SinopeAccessory(this, existingAccessory, thermostat);
+          if (thermostat.name == "RM3250ZB") {
+            new SinopeSwitchAccessory(this, existingAccessory, thermostat);
+          } else {
+            new SinopeAccessory(this, existingAccessory, thermostat);
+          }
           
           // update accessory cache with any changes to the accessory details and information
           this.api.updatePlatformAccessories([existingAccessory]);

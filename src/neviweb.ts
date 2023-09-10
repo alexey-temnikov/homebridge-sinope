@@ -29,7 +29,7 @@ export class NeviwebApi {
   async fetchDevice(id: number) {
     return this.restClient.request<SinopeDeviceState>({
       url: this.config.url + '/device/' + id +
-        '/attribute?attributes=roomTemperature,outputPercentDisplay,setpointMode,alarmsActive0,roomSetpoint',
+        '/attribute?attributes=roomTemperature,outputPercentDisplay,setpointMode,alarmsActive0,roomSetpoint,onOff,wattageInstant,errorCodeSet1,drStatus',
       method: 'GET',
     });
   }
