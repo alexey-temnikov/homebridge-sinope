@@ -1,5 +1,5 @@
 import { Service, PlatformAccessory, CharacteristicValue, CharacteristicSetCallback, CharacteristicGetCallback } from 'homebridge';
-import { SinopeDevice, SinopeDeviceState, SinopeDeviceStateRequest } from './types';
+import {SinopeDevice, SinopeDeviceState, SinopeDeviceStateRequest, SinopeSwitchDevice} from './types';
 import { SinopePlatform } from './platform';
 import AsyncLock from 'async-lock';
 
@@ -173,6 +173,8 @@ export class SinopeAccessory {
   handleTemperatureDisplayUnitsSet(value: CharacteristicValue, callback: CharacteristicSetCallback) {
     this.platform.log.debug('Triggered SET TemperatureDisplayUnits:' + value);
 
+
+
     callback(null);
   }
 
@@ -269,7 +271,7 @@ export class SinopeSwitchAccessory {
   constructor(
       private readonly platform: SinopePlatform,
       private readonly accessory: PlatformAccessory,
-      private readonly device: SinopeDevice,
+      private readonly device: SinopeSwitchDevice,
   ) {
 
     // set accessory information
@@ -308,11 +310,17 @@ export class SinopeSwitchAccessory {
    * Handle requests to set the "Target Heating Cooling State" characteristic
    */
   async setOnCharacteristicHandler(value: CharacteristicValue, callback: CharacteristicSetCallback) {
-    this.platform.log.debug('Triggered SET TargetHeatingCoolingState:' + value);
+    this.platform.log.debug('Triggered SET Senope Switch State:' + value);
 
-    const state = await this.getState();
-    this.state.onOff = value as boolean;
-    callback(null)
+    const body: SinopeDeviceStateRequest = {onOff: value ? "on" : "off"};
+    try {
+      await this.platform.neviweb.updateDevice(this.device.id, body);
+      this.platform.log.debug('updated device %s with TargetTemperature %d', this.device.name, value);
+    } catch(error) {
+      this.platform.log.error('could not update TargetTemperature of device %s', this.device.name);
+    }
+
+    callback(null);
   }
 
 

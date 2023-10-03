@@ -95,7 +95,7 @@ export class SinopePlatform implements DynamicPlatformPlugin {
 
       if (existingAccessory) {
         // the accessory already exists
-        if (thermostat) {
+        if (thermostat && thermostat.sku == "RM3250ZB") {
           this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
 
           // if you need to update the accessory.context then you should run `api.updatePlatformAccessories`. eg.:
@@ -104,14 +104,11 @@ export class SinopePlatform implements DynamicPlatformPlugin {
 
           // create the accessory handler for the restored accessory
           // this is imported from `platformAccessory.ts`
-          if (thermostat.name == "RM3250ZB") {
-            new SinopeSwitchAccessory(this, existingAccessory, thermostat);
-          } else {
-            new SinopeAccessory(this, existingAccessory, thermostat);
-          }
-          
+          new SinopeSwitchAccessory(this, existingAccessory, thermostat);
+
           // update accessory cache with any changes to the accessory details and information
           this.api.updatePlatformAccessories([existingAccessory]);
+
         } else if (!thermostat) {
           // it is possible to remove platform accessories at any time using `api.unregisterPlatformAccessories`, eg.:
           // remove platform accessories when no longer present
@@ -119,22 +116,25 @@ export class SinopePlatform implements DynamicPlatformPlugin {
           this.log.info('Removing existing accessory from cache:', existingAccessory.displayName);
         }
       } else {
-        // the accessory does not yet exist, so we need to create it
-        this.log.info('Adding new accessory:', thermostat.name);
 
-        // create a new accessory
-        const accessory = new this.api.platformAccessory(thermostat.name, uuid);
+        if (thermostat && thermostat.sku == "RM3250ZB") {
+          // the accessory does not yet exist, so we need to create it
+          this.log.info('Adding new accessory:', thermostat.name);
 
-        // store a copy of the device object in the `accessory.context`
-        // the `context` property can be used to store any data about the accessory you may need
-        accessory.context.device = thermostat;
+          // create a new accessory
+          const accessory = new this.api.platformAccessory(thermostat.name, uuid);
 
-        // create the accessory handler for the newly create accessory
-        // this is imported from `platformAccessory.ts`
-        new SinopeAccessory(this, accessory, thermostat);
+          // store a copy of the device object in the `accessory.context`
+          // the `context` property can be used to store any data about the accessory you may need
+          accessory.context.device = thermostat;
 
-        // link the accessory to your platform
-        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+          // create the accessory handler for the newly create accessory
+          // this is imported from `platformAccessory.ts`
+          new SinopeSwitchAccessory(this, accessory, thermostat);
+
+          // link the accessory to your platform
+          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        }
       }
     }
 

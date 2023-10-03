@@ -9,6 +9,15 @@ export interface SinopeDevice {
   vendor: string;
 }
 
+export interface SinopeSwitchDevice {
+  id: number;
+  identifier: string;
+  name: string;
+  parentDevice$id?: number;
+  sku: string;
+  vendor: string;
+}
+
 export interface SinopeDeviceState {
   roomTemperature?: RootTemperature;
   roomSetpoint?: number;
