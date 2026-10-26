@@ -1,69 +1,55 @@
+# Homebridge Sinopé
 
-<p align="center">
+Maintained fork: https://github.com/alexey-temnikov/homebridge-sinope
 
-<img src="https://palourde.github.io/homebridge-sinope/images/homebridge-sinope.png" width="480">
+Supports Neviweb thermostats (`TH`/`OTH`), switches/load controllers (`SW`/`RM`), outlets (`SP`), and dimmers (`DM`). Requires Node 22, 24 or 26 and Homebridge 1.8 or later. Tested with Homebridge 2.4.0/HAP 2.2.2.
 
-</p>
+## Installation from this fork
 
-
-# Homebridge Sinope
-
-This [Homebridge](https://homebridge.io/) plugin provides a platform for [Sinopé Thermostats](https://www.sinopetech.com/).
-
-## Installation
-
-Install the plugin:
+```sh
+npm ci --ignore-scripts
+npm run check
+npm pack
+# In the Homebridge storage directory, using the same Node as Homebridge:
+npm install /absolute/path/to/wfortin-homebridge-sinope-1.0.5.tgz --omit=dev --ignore-scripts
 ```
-sudo npm install -g homebridge-sinope
-```
+
+The package deliberately retains `@wfortin/homebridge-sinope` and platform alias `Sinope` so existing deployed accessories keep their ownership. This is a source fork, not a new release on the upstream npm account. Do not install a second copy alongside the existing plugin. Back up Homebridge configuration, pairing records, accessory cache, and the existing plugin before installation. Build artifacts are included in the tarball; installing an unbuilt Git checkout does not compile it automatically.
+
+Existing device UUIDs still derive from the Neviweb identifier. Cached accessories are retained during cloud outages. No re-pairing is required when replacing the existing scoped package.
 
 ## Configuration
 
-Add the `Sinope` platform in your Homebridge `config.json` file, by replacing the username and password with your Neviweb credentials:
-```
+```json
 {
-  "platforms": [
-    {
-      "platform": "Sinope",
-      "username": "username@email.com",
-      "password": "P@ssw0rd!",
-      "url": "https://neviweb.com/api"
-    }
-  ]
+  "platform": "Sinope",
+  "username": "your-Neviweb-email",
+  "password": "your-Neviweb-password",
+  "url": "https://neviweb.com/api",
+  "requestTimeoutMs": 3500,
+  "pollInterval": 60
 }
 ```
 
-## Development
+`locationid` is an optional location filter. API URLs require HTTPS; HTTP is permitted only for loopback test servers. Never include credentials in the URL. The HomeKit temperature display preference is separate from the physical thermostat's display, and API temperatures remain Celsius. TH1123/TH1124 setpoints support 5–30 °C, in 0.5 °C steps ([manufacturer specification](https://support.sinopetech.com/en/wp-content/uploads/sites/4/2019/08/Product-Fact-Sheet-TH1123ZB-TH1124ZB-270-1505-0001-D.pdf)).
 
-### Build Plugin
+## Reliability changes in 1.0.5
 
-TypeScript needs to be compiled into JavaScript before it can run. The following command will compile the contents of your [`src`](./src) directory and put the resulting code into the `dist` folder.
+- Concurrent reads share one in-flight fetch per device. Removed `async-lock` waiters and uncaught async callbacks that could stop the entire bridge.
+- Bounded HTTP requests cover both headers and body. Authentication is shared, refresh uses local receipt time, and login failures have backoff.
+- Cloud failures become HomeKit communication errors, not fabricated zero temperatures or successful writes. Partial/malformed telemetry is rejected.
+- Device writes are serialized with bounded queues and expired queued commands are canceled. Ambiguous failed commands are never replayed, including dimmer brightness writes.
+- Fixes Zigbee thermostat mode reads/writes to use `systemMode` (`heat`/`off`); Wi-Fi models retain `setpointMode` (`manual`/`auto`/`off`). Zigbee models expose only Off/Heat in HomeKit.
+- Preserves deployed thermostat, relay, outlet and dimmer support. Reuses cached services; fixes the switch On characteristic and supports structured heating-output telemetry. OutletInUse reports unavailable because relay state alone does not prove a physical load is drawing current.
+- Handles discovery failure without dropping cached devices; retries safely. Timers are cleaned on shutdown. Credentials, session tokens and raw transport errors are never logged.
+- Zero production npm dependencies. Uses the supported Node runtime HTTP client.
 
-```
-npm run build
-```
+## Validation
 
-### Link To Homebridge
-
-Run this command so your global install of Homebridge can discover the plugin in your development environment:
-
-```
-npm link
-```
-
-You can now start Homebridge, use the `-D` flag so you can see debug log messages in your plugin:
-
-```
-homebridge -D
+```sh
+npm ci --ignore-scripts
+npm run check
+npm audit --omit=dev
 ```
 
-### Watch For Changes and Build Automatically
-
-If you want to have your code compile automatically as you make changes, and restart Homebridge automatically between changes you can run:
-
-```
-npm run watch
-```
-
-This will launch an instance of Homebridge in debug mode which will restart every time you make a change to the source code. It will load the config stored in the default location under `~/.homebridge`. You may need to stop other running instances of Homebridge while using this command to prevent conflicts. You can adjust the Homebridge startup command in the [`nodemon.json`](./nodemon.json) file.
-
+The strict rejection test suite uses real HAP characteristic handlers and loopback HTTP servers to test concurrent reads, unavailable API responses, hung headers/bodies, session renewal, failed writes, queue expiry, malformed data, restart/discovery behavior, and identity preservation. Tests use synthetic devices; they do not change real thermostats or relays. Live read-only checks should confirm current telemetry and identities after deployment. These software fixes do not correct an inadequate power supply.

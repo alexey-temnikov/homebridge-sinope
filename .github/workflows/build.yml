@@ -1,31 +1,18 @@
-name: Build and Lint
-
+name: Build, lint and regression tests
 on: [push, pull_request]
-
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
-        # the Node.js versions to build on
-        node-version: [10.x, 12.x, 13.x, 14.x, 15.x]
-
+        node: [22, 24, 26]
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Use Node.js ${{ matrix.node-version }} 
-        uses: actions/setup-node@v1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Lint the project
-        run: npm run lint
-
-      - name: Build the project
-        run: npm run build
-        env:
-          CI: true
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm audit --omit=dev
+      - run: npm pack --dry-run --ignore-scripts

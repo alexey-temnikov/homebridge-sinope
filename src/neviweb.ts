@@ -1,44 +1,30 @@
-import { Logger } from 'homebridge';
+import type { Logger } from 'homebridge';
 import { NeviwebRestClient } from './rest-client';
 import { SinopePlatformConfig } from './config';
 import { SinopeDevice, SinopeDeviceState, SinopeDeviceStateRequest } from './types';
-
 export class NeviwebApi {
-  private readonly restClient = new NeviwebRestClient(this.config, this.log);
-
-  constructor(
-    private readonly config: SinopePlatformConfig,
-    private readonly log: Logger,
-  ) {}
-
-  async login(): Promise<boolean>{
-    return this.restClient.login();
-  }
-
-  async logout(): Promise<boolean> {
-    return this.restClient.logout();
-  }
-
-  async fetchDevices() {
-    return this.restClient.request<SinopeDevice[]>({
-      url: this.config.url + '/devices',
-      method: 'GET',
+  private readonly restClient: NeviwebRestClient;
+  constructor(private readonly config: SinopePlatformConfig, log: Logger) { this.restClient = new NeviwebRestClient(config, log); }
+  login(): Promise<boolean> { return this.restClient.login(); }
+  logout(): Promise<boolean> { return this.restClient.logout(); }
+  async fetchDevices(): Promise<SinopeDevice[]> {
+    const location = this.config.locationid;
+    const data = await this.restClient.request<unknown>({
+      path: '/devices' + (location === undefined || location === '' ? '' : `?location$id=${encodeURIComponent(location)}`),
     });
+    if (!Array.isArray(data)) { throw new Error('Invalid Neviweb device list'); }
+    return data.filter((d): d is SinopeDevice => d && Number.isSafeInteger(d.id) && d.id > 0 &&
+      typeof d.identifier === 'string' && d.identifier.length > 0 && typeof d.name === 'string' && typeof d.sku === 'string');
   }
-
-  async fetchDevice(id: number) {
-    return this.restClient.request<SinopeDeviceState>({
-      url: this.config.url + '/device/' + id +
-        '/attribute?attributes=roomTemperature,outputPercentDisplay,setpointMode,alarmsActive0,roomSetpoint,onOff,wattageInstant,errorCodeSet1,drStatus',
-      method: 'GET',
-    });
+  fetchDevice(id: number, attributes: string): Promise<SinopeDeviceState> {
+    return this.restClient.request({ path: `/device/${id}/attribute?attributes=${attributes}` });
   }
-
-  async updateDevice(id: number, data: SinopeDeviceStateRequest) {
-    return this.restClient.request<SinopeDeviceState>({
-      url: this.config.url + '/device/' + id + '/attribute',
-      method: 'PUT',
-      data: data,
-    });
+  fetchThermostat(id: number, zigbee = false): Promise<SinopeDeviceState> {
+    return this.fetchDevice(id, `roomTemperature,outputPercentDisplay,${zigbee ? 'systemMode' : 'setpointMode'},alarmsActive0,roomSetpoint`);
+  }
+  fetchSwitch(id: number): Promise<SinopeDeviceState> { return this.fetchDevice(id, 'onOff'); }
+  fetchDimmer(id: number): Promise<SinopeDeviceState> { return this.fetchDevice(id, 'onOff,intensity'); }
+  updateDevice(id: number, data: SinopeDeviceStateRequest): Promise<unknown> {
+    return this.restClient.request({ path: `/device/${id}/attribute`, method: 'PUT', data });
   }
 }

@@ -22,7 +22,28 @@
         "title": "Password",
         "description": "Password on the Neviweb platform",
         "type": "string",
-        "required": true
+        "required": true,
+        "format": "password"
+      },
+      "locationid": {
+        "title": "Location ID",
+        "type": "string",
+        "description": "Optional Neviweb location filter; existing locationid configuration remains supported."
+      },
+      "requestTimeoutMs": {
+        "title": "Request timeout (milliseconds)",
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 3500,
+        "default": 3500,
+        "description": "Applies to headers and body. Authentication plus a device request takes at most two request timeouts."
+      },
+      "pollInterval": {
+        "title": "Poll interval (seconds)",
+        "type": "integer",
+        "minimum": 30,
+        "default": 60,
+        "maximum": 3600
       }
     }
   }

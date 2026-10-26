@@ -1,176 +1,87 @@
-import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
-
+import type { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import {SinopeAccessory, SinopeSwitchAccessory} from './platformAccessory';
-// import { SinopeDevice } from './types';
+import { SinopeAccessory } from './platformAccessory';
 import { SinopePlatformConfig } from './config';
 import { NeviwebApi } from './neviweb';
-// import { NeviwebConfig } from './rest-client';
+import { deviceKind } from './types';
 
-/**
- * HomebridgePlatform
- * This class is the main constructor for your plugin, this is where you should
- * parse the user config and discover/register accessories with Homebridge.
- */
 export class SinopePlatform implements DynamicPlatformPlugin {
-  public readonly Service: typeof Service = this.api.hap.Service;
-  public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
-
-  // this is used to track restored cached accessories
+  public readonly Service: typeof Service;
+  public readonly Characteristic: typeof Characteristic;
   public readonly accessories: PlatformAccessory[] = [];
-
   public readonly neviweb: NeviwebApi;
+  private readonly handlers = new Map<string, SinopeAccessory>();
+  private retry?: ReturnType<typeof setTimeout>;
+  private stopped = false;
 
-  constructor(
-    public readonly log: Logger,
-    public readonly config: PlatformConfig & SinopePlatformConfig,
-    public readonly api: API,
-  ) {
-    this.log.debug('Finished initializing platform:', this.config.name);
-
-    // let sinopeConfig: SinopePlatformConfig;
-    // const sinopeConfig = this.config;
-
-    this.neviweb = new NeviwebApi(this.config, log);
-
-    // When this event is fired it means Homebridge has restored all cached accessories from disk.
-    // Dynamic Platform plugins should only register new accessories after this event was fired,
-    // in order to ensure they weren't added to homebridge already. This event can also be used
-    // to start discovery of new accessories.
-    this.api.on('didFinishLaunching', async () => {
-      log.debug('Executed didFinishLaunching callback');
-      // run the method to discover / register your devices as accessories
-      await this.discoverDevices();
-    });
-
-    this.api.on('shutdown', () => {
-      this.shutdown();
-    });
-  }
-
-  /**
-   * This function is invoked when homebridge restores cached accessories from disk at startup.
-   * It should be used to setup event handlers for characteristics and update respective values.
-   */
-  configureAccessory(accessory: PlatformAccessory) {
-    this.log.info('Loading accessory from cache:', accessory.displayName);
-
-    // add the restored accessory to the accessories cache so we can track if it has already been registered
-    this.accessories.push(accessory);
-  }
-
-  /**
-   * This is an example method showing how to register discovered accessories.
-   * Accessories must only be registered once, previously created accessories
-   * must not be registered again to prevent "duplicate UUID" errors.
-   */
-  async discoverDevices() {
-    const connected = await this.neviweb.login();
-    if (!connected) {
-      this.log.error('could not authenticate to the neviweb API');
-      return;
+  constructor(public readonly log: Logger, public readonly config: PlatformConfig & SinopePlatformConfig, public readonly api: API) {
+    this.Service = api.hap.Service;
+    this.Characteristic = api.hap.Characteristic;
+    if (!Number.isInteger(config.pollInterval ?? 60) || (config.pollInterval ?? 60) < 30 || (config.pollInterval ?? 60) > 3600) {
+      throw new Error('pollInterval must be between 30 and 3600 seconds');
     }
-    this.log.info('successfully authenticated to the neviweb API');
+    this.neviweb = new NeviwebApi(config, log);
+    api.on('didFinishLaunching', () => { void this.startDiscovery(); });
+    api.on('shutdown', () => { void this.shutdown(); });
+  }
 
-    const devices = await this.neviweb.fetchDevices();
-    this.log.debug('found the following devices: ' + JSON.stringify(devices));
+  configureAccessory(accessory: PlatformAccessory): void {
+    if (!this.accessories.some(a => a.UUID === accessory.UUID)) { this.accessories.push(accessory); }
+    const device = accessory.context.device;
+    // Restore read handlers even if the cloud is unavailable at launch.
+    if (device && deviceKind(device) && !this.stopped) {
+      this.handlers.set(accessory.UUID, new SinopeAccessory(this, accessory, device, deviceKind(device)));
+    }
+  }
 
-    // Gateways are now returned in the list of devices so we need to
-    // filter these out.
-    // TODO(palourde): There must be a more reliable way of doing this than
-    // looking at the parentDevice$id field
-    const thermostats = devices.filter(device => device.parentDevice$id !== null);
-
-    // loop over the discovered devices and register each one if it has not already been registered
-    for (const thermostat of thermostats) {
-
-      // generate a unique id for the accessory this should be generated from
-      // something globally unique, but constant, for example, the device serial
-      // number or MAC address
-      const uuid = this.api.hap.uuid.generate(thermostat.identifier);
-
-      // see if an accessory with the same uuid has already been registered and restored from
-      // the cached devices we stored in the `configureAccessory` method above
-      const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
-
-      if (existingAccessory) {
-        // the accessory already exists
-        if (thermostat && thermostat.sku == "RM3250ZB") {
-          this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
-
-          // if you need to update the accessory.context then you should run `api.updatePlatformAccessories`. eg.:
-          // existingAccessory.context.device = device;
-          // this.api.updatePlatformAccessories([existingAccessory]);
-
-          // create the accessory handler for the restored accessory
-          // this is imported from `platformAccessory.ts`
-          new SinopeSwitchAccessory(this, existingAccessory, thermostat);
-
-          // update accessory cache with any changes to the accessory details and information
-          this.api.updatePlatformAccessories([existingAccessory]);
-
-        } else if (!thermostat) {
-          // it is possible to remove platform accessories at any time using `api.unregisterPlatformAccessories`, eg.:
-          // remove platform accessories when no longer present
-          this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existingAccessory]);
-          this.log.info('Removing existing accessory from cache:', existingAccessory.displayName);
-        }
-      } else {
-
-        if (thermostat && thermostat.sku == "RM3250ZB") {
-          // the accessory does not yet exist, so we need to create it
-          this.log.info('Adding new accessory:', thermostat.name);
-
-          // create a new accessory
-          const accessory = new this.api.platformAccessory(thermostat.name, uuid);
-
-          // store a copy of the device object in the `accessory.context`
-          // the `context` property can be used to store any data about the accessory you may need
-          accessory.context.device = thermostat;
-
-          // create the accessory handler for the newly create accessory
-          // this is imported from `platformAccessory.ts`
-          new SinopeSwitchAccessory(this, accessory, thermostat);
-
-          // link the accessory to your platform
-          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-        }
+  private async startDiscovery(): Promise<void> {
+    try { await this.discoverDevices(); }
+    catch {
+      this.log.error('Sinopé discovery unavailable; keeping cached accessories and retrying in 60 seconds.');
+      if (!this.stopped) {
+        this.retry = setTimeout(() => { this.retry = undefined; void this.startDiscovery(); }, 60000);
+        this.retry.unref();
       }
     }
-
-    // this.updateDevices(thermostats);
   }
 
-  // private async updateDevices(devices: SinopeDevice[]) {
-  //   for (const device of devices) {
-  //     // const uuid = this.api.hap.uuid.generate(device.UUID);
-  //     // this.accessories.get();
-  //     this.log.debug('device = ' + JSON.stringify(device));
-
-  //     const uuid = this.api.hap.uuid.generate(device.identifier);
-  //     const accessory = this.accessories.find(accessory => accessory.UUID === uuid);
-      
-  //     if (accessory) {
-  //       const state = this.neviweb.fetchDevice(device.id);
-  //       this.log.debug(JSON.stringify(state));
-  //       accessory.context.device.update(state);
-  //       // accessory.
-  //     } else {
-  //       this.log.error('could not find Homebridge devic with UUID (%s) for Sinope device (%s)', uuid, device.name);
-  //     }
-
-      
-  //     // accessory.updateAccessory(state);
-  //     // accessory.
-  //   }
-  // }
-
-  async shutdown() {
-    const loggedOut = await this.neviweb.logout();
-    if (!loggedOut) {
-      this.log.error('could not log out from the neviweb API');
-      return;
+  async discoverDevices(): Promise<void> {
+    if (this.stopped) { return; }
+    if (!await this.neviweb.login()) { throw new Error('Neviweb authentication unavailable'); }
+    const devices = await this.neviweb.fetchDevices();
+    if (this.stopped) { return; }
+    const seen = new Set<string>();
+    for (const device of devices) {
+      const kind = deviceKind(device);
+      if (!kind) { continue; }
+      // Same identifier and UUID algorithm as the deployed plugin.
+      const uuid = this.api.hap.uuid.generate(device.identifier);
+      if (seen.has(uuid)) { continue; }
+      seen.add(uuid);
+      const existing = this.accessories.find(a => a.UUID === uuid);
+      const accessory = existing || new this.api.platformAccessory(device.name, uuid);
+      const unchanged = JSON.stringify(accessory.context.device) === JSON.stringify(device);
+      accessory.context.device = device;
+      if (!unchanged || !this.handlers.has(uuid)) {
+        this.handlers.get(uuid)?.dispose();
+        this.handlers.set(uuid, new SinopeAccessory(this, accessory, device, kind));
+      }
+      if (existing) { this.api.updatePlatformAccessories([accessory]); }
+      else {
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.accessories.push(accessory);
+      }
     }
-    this.log.info('successfully logged out from the neviweb API');
+    // Never delete cached devices on a transient or partial cloud response.
+    this.log.info('Sinopé discovery complete: %d supported devices.', seen.size);
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.stopped) { return; }
+    this.stopped = true;
+    if (this.retry) { clearTimeout(this.retry); this.retry = undefined; }
+    for (const handler of this.handlers.values()) { handler.dispose(); }
+    try { await this.neviweb.logout(); }
+    catch { this.log.debug('Sinopé session could not be closed during shutdown.'); }
   }
 }
